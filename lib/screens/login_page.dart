@@ -1,3 +1,4 @@
+// lib/screens/login_page.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/custom_text_field.dart';
@@ -24,7 +25,22 @@ class _LoginPageState extends State<LoginPage> {
     passwordController.text = prefs.getString('password') ?? '';
   }
 
-  void _login() => Navigator.pushReplacementNamed(context, '/home');
+  Future<void> _login() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedEmail = prefs.getString('email') ?? '';
+    final savedPassword = prefs.getString('password') ?? '';
+
+    final enteredEmail = emailController.text.trim();
+    final enteredPassword = passwordController.text.trim();
+
+    if (enteredEmail == savedEmail && enteredPassword == savedPassword) {
+      Navigator.pushReplacementNamed(context, '/home');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Невірний email або пароль")),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
