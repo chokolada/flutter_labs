@@ -1,6 +1,6 @@
-// lib/screens/profile_page.dart
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 class ProfilePage extends StatefulWidget {
   @override
@@ -8,64 +8,68 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  bool isAutoMode = true;
-  final tempController = TextEditingController(text: '23');
-  final humController = TextEditingController(text: '58');
-  final co2Controller = TextEditingController(text: '720');
-  String userEmail = '';
-  String userName = '';
+  final _mcuPassword = "1111"; // Той самий, що у мікроконтролері
+  String userEmail = 'example@email.com';
+  String userName = 'User';
 
-  @override
-  void initState() {
-    super.initState();
-    _loadUserData();
-  }
+  void _startQRCodeScan() async {
+    String? qrData = await Navigator.push(context, MaterialPageRoute(
+      builder: (_) => QRViewExample(),
+    ));
 
-  Future<void> _loadUserData() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      userEmail = prefs.getString('email') ?? '';
-      userName = prefs.getString('name') ?? '';
-      tempController.text = prefs.getString('temp') ?? '23';
-      humController.text = prefs.getString('hum') ?? '58';
-      co2Controller.text = prefs.getString('co2') ?? '720';
-      isAutoMode = prefs.getBool('autoMode') ?? true;
-    });
-  }
+    if (qrData != null) {
+      // Відправка даних на мікроконтролер
+      var url = Uri.parse('http://192.168.1.150/configure');
+      var response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: '{"password":"$_mcuPassword","payload":"$qrData"}',
+      );
 
-  Future<void> _saveManualValues() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('temp', tempController.text);
-    await prefs.setString('hum', humController.text);
-    await prefs.setString('co2', co2Controller.text);
-  }
-
-  Future<void> _saveFieldsIfAutoMode() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('autoMode', isAutoMode);
-    if (isAutoMode) {
-      await prefs.setString('temp', tempController.text);
-      await prefs.setString('hum', humController.text);
-      await prefs.setString('co2', co2Controller.text);
+      if (response.statusCode == 200) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text("Результат"),
+            content: Text("Відповідь від МК: ${response.body}"),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Помилка відправки на МК")),
+        );
+      }
     }
   }
 
-  void _confirmLogout() {
+  void _showPasswordDialog() {
+    TextEditingController pwdController = TextEditingController();
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Вийти з профілю?'),
-        content: Text('Ви впевнені, що хочете вийти?'),
+        title: Text("Введіть пароль для МК"),
+        content: TextField(
+          controller: pwdController,
+          obscureText: true,
+          decoration: InputDecoration(labelText: "Пароль"),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('Скасувати'),
+            child: Text("Скасувати"),
           ),
           TextButton(
             onPressed: () {
-              Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+              if (pwdController.text == _mcuPassword) {
+                Navigator.pop(context);
+                _startQRCodeScan();
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Невірний пароль")),
+                );
+              }
             },
-            child: Text('Вийти'),
+            child: Text("Підтвердити"),
           ),
         ],
       ),
@@ -73,73 +77,42 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text("Профіль"),
-          Text(userEmail, style: TextStyle(fontSize: 12)),
-        ],
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text("Профіль")),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            Text("Ім’я: $userName"),
+            Text("Email: $userEmail"),
+            ElevatedButton(
+              onPressed: _showPasswordDialog,
+              child: Text("Сканувати QR для МК"),
+            ),
+          ],
+        ),
       ),
-      actions: [
-        IconButton(
-          icon: Icon(Icons.logout),
-          onPressed: _confirmLogout,
-          tooltip: 'Вийти',
-        )
-      ],
-    ),
-    body: Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text("Ім’я: $userName", style: TextStyle(fontSize: 18)),
-          SizedBox(height: 20),
-          Text("Режим вентиляції:", style: TextStyle(fontSize: 20)),
-          SizedBox(height: 10),
-          SwitchListTile(
-            title: Text(isAutoMode ? "Автоматичний" : "Ручний"),
-            value: isAutoMode,
-            onChanged: (value) {
-              setState(() => isAutoMode = value);
-              _saveFieldsIfAutoMode();
-            },
-          ),
-          SizedBox(height: 20),
-          _buildInputField("Температура (°C)", tempController),
-          SizedBox(height: 10),
-          _buildInputField("Вологість (%)", humController),
-          SizedBox(height: 10),
-          _buildInputField("CO₂ (ppm)", co2Controller),
-          if (!isAutoMode) ...[
-            SizedBox(height: 20),
-            Center(
-              child: ElevatedButton(
-                onPressed: () async {
-                  await _saveManualValues();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("Дані збережено!")),
-                  );
-                },
-                child: Text("Зберегти зміни"),
-              ),
-            )
-          ]
-        ],
-      ),
-    ),
-  );
+    );
+  }
+}
 
-  Widget _buildInputField(String label, TextEditingController controller) => TextField(
-    controller: controller,
-    enabled: !isAutoMode,
-    keyboardType: TextInputType.number,
-    decoration: InputDecoration(
-      labelText: label,
-      border: OutlineInputBorder(),
+class QRViewExample extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Сканер QR')),
+      body: MobileScanner(
+      onDetect: (capture) {
+        final List<Barcode> barcodes = capture.barcodes;
+        for (final barcode in barcodes) {
+          if (barcode.rawValue != null) {
+            Navigator.pop(context, barcode.rawValue);
+            break; 
+          }
+        }
+      },
     ),
-  );
+    );
+  }
 }
